@@ -116,20 +116,11 @@
     b.addEventListener('click', ()=> applyTheme(b.dataset.theme));
   });
 
-  // --- Utilities
   function nowTs(){ return Date.now(); }
   function localDateString(d=new Date()){
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   }
 
-  // --- Announcements structure:
-  // /announcements/<id> = {
-  //   id, from, text, durationSec, ts, expiryTs,
-  //   pinned: false,  // optional
-  //   seen: { username: true }  // when game marks seen for a user
-  // }
-
-  // send message (push)
   function sendAnnouncement(stackAbove=false){
     const from = (adminNameEl.value || 'Admin').trim();
     const text = (messageTextEl.value || '').trim();
@@ -148,10 +139,9 @@
       pinned: !!stackAbove
     };
 
-    // If stackAbove === true we still push normally; front-end game shows newest first.
     db.ref('announcements/' + id).set(entry).then(()=>{
       messageTextEl.value = '';
-      showAnnouncements(); // refresh UI
+      showAnnouncements();
     }).catch(err=>{
       console.error('announce error', err);
       alert('Failed to send announcement');
@@ -161,7 +151,6 @@
   sendMsgBtn.addEventListener('click', ()=> sendAnnouncement(false));
   stackMsgBtn.addEventListener('click', ()=> sendAnnouncement(true));
 
-  // Give money via transaction (safe)
   function giveMoneyToUser(username, amount){
     if(!username) { giveMsgEl.textContent = 'Select a user'; return; }
     amount = Number(amount) || 0;
@@ -179,7 +168,6 @@
         return;
       }
       giveMsgEl.textContent = `Gave $${amount} to ${username}`;
-      // small clear
       setTimeout(()=> giveMsgEl.textContent = '', 3000);
     });
   }
@@ -192,12 +180,10 @@
 
   refreshUsersBtn.addEventListener('click', populateUsers);
 
-  // populate user list from /users keys (if empty fallback to known list)
   function populateUsers(){
     userSelect.innerHTML = '';
     db.ref('users').once('value').then(snap=>{
       if(!snap.exists()){
-        // fallback known
         ['zezo','lilly','asser'].forEach(u=>{
           const o = document.createElement('option'); o.value=u; o.textContent=u; userSelect.appendChild(o);
         });
@@ -219,11 +205,9 @@
     });
   }
 
-  // Apply theme by writing /theme/current
   function applyTheme(name){
     const now = Date.now();
     const themePayload = { name, ts: now };
-    // define some presets
     const presets = {
       red:  { bg: ['#2b0216','#3b071f'], btn: '#ff3b3b' },
       green:{ bg: ['#021b0b','#054d2c'], btn: '#16a34a' },
@@ -241,12 +225,10 @@
     }).catch(e=> console.warn('theme set error', e));
   }
 
-  // show announcements list in controller (newest first)
   function showAnnouncements(){
     annList.innerHTML = '<div class="muted">Loading...</div>';
     db.ref('announcements').orderByChild('ts').once('value').then(snap=>{
       const data = snap.val() || {};
-      // convert to array and sort descending
       const arr = Object.values(data).sort((a,b)=> b.ts - a.ts);
       annList.innerHTML = '';
       if(arr.length === 0){
@@ -266,7 +248,6 @@
         };
         const seenAllBtn = document.createElement('button'); seenAllBtn.className='btn-primary small'; seenAllBtn.textContent='Mark seen for all';
         seenAllBtn.onclick = ()=>{
-          // mark seen true for all known users (reads users)
           db.ref('users').once('value').then(s=> {
             const users = s.exists() ? Object.keys(s.val()) : ['zezo','lilly','asser'];
             const seenObj = {};
@@ -282,47 +263,12 @@
     });
   }
 
-  // Automatically show announcements when controller opens
   showAnnouncements();
   populateUsers();
 
-  // Optional: keep controller UI in sync with DB (live)
   db.ref('announcements').on('child_added', snap => showAnnouncements());
   db.ref('announcements').on('child_removed', snap => showAnnouncements());
-  db.ref('theme/current').on('value', snap => {
-    // display current theme briefly in console or UI update (non-essential)
-    console.log('Theme changed', snap.val());
-  });
-
-  // ---------- Integration notes for your game (copy into your game script) ----------
-  /* 
-    1) Displaying announcements in the game:
-       - Listen to: db.ref('announcements').orderByChild('ts')
-       - For each announcement object 'a':
-           show it if: !a.seen || !a.seen[currentUser]
-       - When a player displays the announcement on their screen, set:
-           db.ref('announcements/' + a.id + '/seen/' + currentUser).set(true);
-         so it won't show again for that player (persists across refreshes).
-       - Use a.ts and a.durationSec to display and auto-hide.
-       - Sort announcements by ts descending so newest appears above older ones.
-
-    2) Theme usage in game:
-       - Listen to: db.ref('theme/current')
-       - When it changes, use the payload.presets to set CSS variables or directly set background gradients and button colors.
-       - If payload.presets.btn === 'disco', you can run a short disco animation cycling through payload.presets.bg colors.
-
-    3) Giving money:
-       - Controller already uses a transaction to increment users/<username>/money.
-       - Game will pick it up via your existing user data load.
-
-    4) Message stacking:
-       - The controller sets ts and the game should render newest (highest ts) first (i.e. above older messages).
-
-    5) Security:
-       - This controller assumes your Firebase DB rules allow writes. For a public site you should restrict who can call these admin endpoints (recommended) via Firebase Authentication and database rules. For simple uses in a private repo it will work as-is.
-
-  */
-
+  db.ref('theme/current').on('value', snap => console.log('Theme changed', snap.val()));
 </script>
 </body>
 </html>
