@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Game Controller — Zezo Clicker</title>
+
+<!-- Firebase compat (same family as your game) -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+<style>
+  body{font-family:Inter,system-ui,Arial; background:#071122;color:#eaf6ff;margin:0;padding:18px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:12px;padding:14px;margin-bottom:14px;border:1px solid rgba(255,255,255,0.04)}
+  h1{margin:0 0 8px}
+  label{display:block;margin:8px 0 4px;font-size:13px;color:#bcdbe6}
+  input[type="text"], input[type="number"], textarea, select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+  textarea{min-height:80px;resize:vertical}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  button{padding:8px 12px;border-radius:8px;border:0;cursor:pointer;font-weight:700}
+  .btn-primary{background:linear-gradient(90deg,#ff8a00,#ffd59b);color:#231200}
+  .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit}
+  .theme-btn{padding:8px 10px;border-radius:8px;border:0;cursor:pointer;font-weight:700;color:#071022}
+  .list{max-height:280px;overflow:auto;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:rgba(0,0,0,0.18)}
+  .msg-item{padding:8px;border-radius:8px;margin-bottom:8px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;gap:8px}
+  .muted{color:#9fc6d8;font-size:13px}
+  .small{font-size:13px;padding:6px 8px}
+  .theme-row{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+  <h1>Controller — Zezo Clicker</h1>
+
+  <div class="card">
+    <strong>Send message to players</strong>
+    <label>Your name</label>
+    <input id="adminName" type="text" placeholder="Your admin name (will appear on message)" value="Admin">
+    <label>Message text</label>
+    <textarea id="messageText" placeholder="Type the message that will appear in-game"></textarea>
+    <label>Duration (seconds)</label>
+    <input id="messageDuration" type="number" min="1" step="1" value="8">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="sendMsg" class="btn-primary">Send Message</button>
+      <button id="stackMsg" class="btn-ghost">Send & Stack Above</button>
+    </div>
+    <div class="muted" style="margin-top:8px">When a player views a message, the game should mark it seen at <code>announcements/&lt;id&gt;/seen/&lt;username&gt;</code> so it won't show to that player again.</div>
+  </div>
+
+  <div class="card">
+    <strong>Give money to a user</strong>
+    <label>Target user</label>
+    <select id="userSelect"></select>
+    <label>Amount to give ($)</label>
+    <input id="giveAmount" type="number" min="1" step="1" value="1000">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="giveBtn" class="btn-primary">Give Money</button>
+      <button id="refreshUsers" class="btn-ghost small">Refresh users</button>
+    </div>
+    <div id="giveMsg" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <strong>Theme controls</strong>
+    <div class="muted" style="margin-bottom:8px">Click a color to push theme to the game (writes <code>/theme/current</code>).</div>
+    <div class="theme-row">
+      <button class="theme-btn" style="background:#ff3b3b;color:white" data-theme="red">Red</button>
+      <button class="theme-btn" style="background:#16a34a;color:white" data-theme="green">Green</button>
+      <button class="theme-btn" style="background:#3b82f6;color:white" data-theme="blue">Blue</button>
+      <button class="theme-btn" style="background:#ec4899;color:white" data-theme="pink">Pink</button>
+      <button class="theme-btn" style="background:#8b5cf6;color:white" data-theme="purple">Purple</button>
+      <button class="theme-btn" style="background:#f59e0b;color:#071022" data-theme="yellow">Yellow</button>
+      <button class="theme-btn" style="background:#000000;color:white" data-theme="black">Black</button>
+      <button class="theme-btn" style="background:linear-gradient(90deg,#06b6d4,#0ea5e9);color:#071022" data-theme="original">Original</button>
+      <button class="theme-btn" style="background:linear-gradient(90deg,#ff3b3b,#f97316,#facc15,#34d399,#60a5fa);color:#071022" data-theme="disco">Disco</button>
+    </div>
+    <div class="muted" style="margin-top:8px">Disco will set the <code>disco</code> flag. Your game should react to <code>/theme/current</code> updates.</div>
+  </div>
+
+  <div class="card">
+    <strong>Existing announcements</strong>
+    <div class="muted" style="margin:6px 0">You can delete announcements here. Newest appear first.</div>
+    <div class="list" id="annList"></div>
+  </div>
+
+<script>
+  // --- Firebase config (your same config)
+  const firebaseConfig = {
+    apiKey: "AIzaSyAooLq0iO6pt7cEAu7VpdYmHEAyANsH4z8",
+    authDomain: "hatch-647fa.firebaseapp.com",
+    databaseURL: "https://hatch-647fa-default-rtdb.firebaseio.com",
+    projectId: "hatch-647fa",
+    storageBucket: "hatch-647fa.firebasestorage.app",
+    messagingSenderId: "1002694901238",
+    appId: "1:1002694901238:web:5c51840b40ea625e189bd7",
+    measurementId: "G-SSNDLN72PE"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // UI refs
+  const adminNameEl = document.getElementById('adminName');
+  const messageTextEl = document.getElementById('messageText');
+  const messageDurationEl = document.getElementById('messageDuration');
+  const sendMsgBtn = document.getElementById('sendMsg');
+  const stackMsgBtn = document.getElementById('stackMsg');
+  const annList = document.getElementById('annList');
+
+  const userSelect = document.getElementById('userSelect');
+  const giveAmountEl = document.getElementById('giveAmount');
+  const giveBtn = document.getElementById('giveBtn');
+  const refreshUsersBtn = document.getElementById('refreshUsers');
+  const giveMsgEl = document.getElementById('giveMsg');
+
+  // theme buttons
+  document.querySelectorAll('.theme-btn').forEach(b=>{
+    b.addEventListener('click', ()=> applyTheme(b.dataset.theme));
+  });
+
+  // --- Utilities
+  function nowTs(){ return Date.now(); }
+  function localDateString(d=new Date()){
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+
+  // --- Announcements structure:
+  // /announcements/<id> = {
+  //   id, from, text, durationSec, ts, expiryTs,
+  //   pinned: false,  // optional
+  //   seen: { username: true }  // when game marks seen for a user
+  // }
+
+  // send message (push)
+  function sendAnnouncement(stackAbove=false){
+    const from = (adminNameEl.value || 'Admin').trim();
+    const text = (messageTextEl.value || '').trim();
+    const dur = Math.max(1, Number(messageDurationEl.value) || 8);
+    if(!text){ alert('Enter a message'); return; }
+
+    const id = 'ann_' + Math.random().toString(36).slice(2,10);
+    const ts = nowTs();
+    const entry = {
+      id,
+      from,
+      text,
+      durationSec: dur,
+      ts,
+      expiryTs: ts + dur*1000,
+      pinned: !!stackAbove
+    };
+
+    // If stackAbove === true we still push normally; front-end game shows newest first.
+    db.ref('announcements/' + id).set(entry).then(()=>{
+      messageTextEl.value = '';
+      showAnnouncements(); // refresh UI
+    }).catch(err=>{
+      console.error('announce error', err);
+      alert('Failed to send announcement');
+    });
+  }
+
+  sendMsgBtn.addEventListener('click', ()=> sendAnnouncement(false));
+  stackMsgBtn.addEventListener('click', ()=> sendAnnouncement(true));
+
+  // Give money via transaction (safe)
+  function giveMoneyToUser(username, amount){
+    if(!username) { giveMsgEl.textContent = 'Select a user'; return; }
+    amount = Number(amount) || 0;
+    if(amount <= 0) { giveMsgEl.textContent = 'Enter amount > 0'; return; }
+
+    const moneyRef = db.ref('users/' + username + '/money');
+    giveMsgEl.textContent = 'Sending...';
+    moneyRef.transaction(current => {
+      if(current === null) current = 0;
+      return (current || 0) + amount;
+    }, (err, committed, snap) => {
+      if(err || !committed){
+        giveMsgEl.textContent = 'Give failed';
+        console.warn('give failed', err);
+        return;
+      }
+      giveMsgEl.textContent = `Gave $${amount} to ${username}`;
+      // small clear
+      setTimeout(()=> giveMsgEl.textContent = '', 3000);
+    });
+  }
+
+  giveBtn.addEventListener('click', ()=>{
+    const target = userSelect.value;
+    const amount = Number(giveAmountEl.value) || 0;
+    giveMoneyToUser(target, amount);
+  });
+
+  refreshUsersBtn.addEventListener('click', populateUsers);
+
+  // populate user list from /users keys (if empty fallback to known list)
+  function populateUsers(){
+    userSelect.innerHTML = '';
+    db.ref('users').once('value').then(snap=>{
+      if(!snap.exists()){
+        // fallback known
+        ['zezo','lilly','asser'].forEach(u=>{
+          const o = document.createElement('option'); o.value=u; o.textContent=u; userSelect.appendChild(o);
+        });
+        return;
+      }
+      const data = snap.val();
+      const keys = Object.keys(data || {});
+      if(keys.length === 0){
+        ['zezo','lilly','asser'].forEach(u=>{
+          const o = document.createElement('option'); o.value=u; o.textContent=u; userSelect.appendChild(o);
+        });
+        return;
+      }
+      keys.forEach(k=>{
+        const o = document.createElement('option'); o.value=k; o.textContent=k; userSelect.appendChild(o);
+      });
+    }).catch(e=>{
+      console.warn('populate users error', e);
+    });
+  }
+
+  // Apply theme by writing /theme/current
+  function applyTheme(name){
+    const now = Date.now();
+    const themePayload = { name, ts: now };
+    // define some presets
+    const presets = {
+      red:  { bg: ['#2b0216','#3b071f'], btn: '#ff3b3b' },
+      green:{ bg: ['#021b0b','#054d2c'], btn: '#16a34a' },
+      blue: { bg: ['#021033','#03396b'], btn: '#3b82f6' },
+      pink: { bg: ['#2b0216','#3b0630'], btn: '#ec4899' },
+      purple:{ bg: ['#0b021a','#21063a'], btn: '#8b5cf6' },
+      yellow:{ bg: ['#2b2300','#3b2c00'], btn: '#f59e0b' },
+      black:{ bg: ['#000000','#0a0a0a'], btn: '#111111' },
+      original:{ bg: ['#071022','#001d2d'], btn:'#06b6d4' },
+      disco:{ bg: ['#ff3b3b','#f97316','#facc15','#34d399','#60a5fa'], btn:'disco' }
+    };
+    if(presets[name]) themePayload.presets = presets[name];
+    db.ref('theme/current').set(themePayload).then(()=> {
+      console.log('Theme set', name);
+    }).catch(e=> console.warn('theme set error', e));
+  }
+
+  // show announcements list in controller (newest first)
+  function showAnnouncements(){
+    annList.innerHTML = '<div class="muted">Loading...</div>';
+    db.ref('announcements').orderByChild('ts').once('value').then(snap=>{
+      const data = snap.val() || {};
+      // convert to array and sort descending
+      const arr = Object.values(data).sort((a,b)=> b.ts - a.ts);
+      annList.innerHTML = '';
+      if(arr.length === 0){
+        annList.innerHTML = '<div class="muted">No announcements</div>';
+        return;
+      }
+      arr.forEach(a=>{
+        const el = document.createElement('div'); el.className = 'msg-item';
+        const left = document.createElement('div');
+        left.innerHTML = `<div style="font-weight:800">${a.from}</div><div style="font-size:14px">${a.text}</div><div class="muted" style="font-size:12px;margin-top:6px">Duration: ${a.durationSec}s — Sent: ${new Date(a.ts).toLocaleString()}</div>`;
+        const right = document.createElement('div');
+        right.style.display = 'flex'; right.style.flexDirection = 'column'; right.style.alignItems='flex-end'; right.style.gap='6px';
+        const del = document.createElement('button'); del.className='btn-ghost small'; del.textContent='Delete';
+        del.onclick = ()=> {
+          if(!confirm('Delete this announcement?')) return;
+          db.ref('announcements/' + a.id).remove().then(()=> showAnnouncements());
+        };
+        const seenAllBtn = document.createElement('button'); seenAllBtn.className='btn-primary small'; seenAllBtn.textContent='Mark seen for all';
+        seenAllBtn.onclick = ()=>{
+          // mark seen true for all known users (reads users)
+          db.ref('users').once('value').then(s=> {
+            const users = s.exists() ? Object.keys(s.val()) : ['zezo','lilly','asser'];
+            const seenObj = {};
+            users.forEach(u => seenObj[u] = true);
+            db.ref('announcements/' + a.id + '/seen').update(seenObj).then(()=> showAnnouncements());
+          });
+        };
+        right.appendChild(seenAllBtn);
+        right.appendChild(del);
+        el.appendChild(left); el.appendChild(right);
+        annList.appendChild(el);
+      });
+    });
+  }
+
+  // Automatically show announcements when controller opens
+  showAnnouncements();
+  populateUsers();
+
+  // Optional: keep controller UI in sync with DB (live)
+  db.ref('announcements').on('child_added', snap => showAnnouncements());
+  db.ref('announcements').on('child_removed', snap => showAnnouncements());
+  db.ref('theme/current').on('value', snap => {
+    // display current theme briefly in console or UI update (non-essential)
+    console.log('Theme changed', snap.val());
+  });
+
+  // ---------- Integration notes for your game (copy into your game script) ----------
+  /* 
+    1) Displaying announcements in the game:
+       - Listen to: db.ref('announcements').orderByChild('ts')
+       - For each announcement object 'a':
+           show it if: !a.seen || !a.seen[currentUser]
+       - When a player displays the announcement on their screen, set:
+           db.ref('announcements/' + a.id + '/seen/' + currentUser).set(true);
+         so it won't show again for that player (persists across refreshes).
+       - Use a.ts and a.durationSec to display and auto-hide.
+       - Sort announcements by ts descending so newest appears above older ones.
+
+    2) Theme usage in game:
+       - Listen to: db.ref('theme/current')
+       - When it changes, use the payload.presets to set CSS variables or directly set background gradients and button colors.
+       - If payload.presets.btn === 'disco', you can run a short disco animation cycling through payload.presets.bg colors.
+
+    3) Giving money:
+       - Controller already uses a transaction to increment users/<username>/money.
+       - Game will pick it up via your existing user data load.
+
+    4) Message stacking:
+       - The controller sets ts and the game should render newest (highest ts) first (i.e. above older messages).
+
+    5) Security:
+       - This controller assumes your Firebase DB rules allow writes. For a public site you should restrict who can call these admin endpoints (recommended) via Firebase Authentication and database rules. For simple uses in a private repo it will work as-is.
+
+  */
+
+</script>
+</body>
+</html>
